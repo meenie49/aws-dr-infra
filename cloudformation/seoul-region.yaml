@@ -1,0 +1,1453 @@
+Parameters:
+  LatestAmiId:
+    Description: (DO NOT CHANGE)
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+    AllowedValues:
+      - /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances. Linked to AWS Parameter
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+
+Resources:
+  # VPC
+  SEOULVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+     CidrBlock: 10.1.0.0/16
+     EnableDnsSupport: true
+     EnableDnsHostnames: true
+     Tags:
+      - Key: Name
+        Value: SEOUL-VPC
+
+  # IGW
+  SEOULIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: SEOUL-IGW
+  
+  # VPC-IGW 
+  SEOULVPCIGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref SEOULIGW
+      VpcId: !Ref SEOULVPC
+
+  # RT
+  SEOULPublicRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SEOULVPC
+      Tags:
+        - Key: Name
+          Value: SEOUL-Public-RT
+
+  SEOULPrivateRT1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SEOULVPC
+      Tags:
+        - Key: Name
+          Value: SEOUL-Private-RT1
+
+  SEOULPrivateRT2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SEOULVPC
+      Tags:
+        - Key: Name
+          Value: SEOUL-Private-RT2
+
+  SEOULTGWRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SEOULVPC
+      Tags:
+        - Key: Name
+          Value: SEOUL-TGW-RT
+
+  # IGW - RT
+  SEOULPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: SEOULVPCIGWAttachment
+    Properties:
+      RouteTableId: !Ref SEOULPublicRT
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref SEOULIGW
+
+  # NAT Route
+  # PublicSN - RT - NATInstance
+  # 프라이빗 서브넷의 트래픽이 인터넷으로 나가기 위해 SEOULNATInstance1을 경유하도록 설정
+  NATInstance1Route:
+    Type: AWS::EC2::Route
+    DependsOn: SEOULNATInstance1
+    Properties:
+      RouteTableId: !Ref SEOULPrivateRT1
+      DestinationCidrBlock: 0.0.0.0/0
+      InstanceId: !Ref SEOULNATInstance1
+
+  NATInstance2Route:
+    Type: AWS::EC2::Route
+    DependsOn: SEOULNATInstance2
+    Properties:
+      RouteTableId: !Ref SEOULPrivateRT2
+      DestinationCidrBlock: 0.0.0.0/0
+      InstanceId: !Ref SEOULNATInstance2
+
+  # SN
+  SEOULPublicSN1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SEOULVPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.1.1.0/24
+      Tags: 
+        - Key: Name
+          Value: SEOUL-Public-SN1
+  
+  SEOULPublicSN2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SEOULVPC
+      AvailabilityZone: !Select [2, !GetAZs '']
+      CidrBlock: 10.1.2.0/24
+      Tags: 
+        - Key: Name
+          Value: SEOUL-Public-SN2
+
+  SEOULPrivateSN1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SEOULVPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: 10.1.3.0/24
+      Tags:
+        - Key: Name
+          Value: SEOUL-Private-SN1
+
+  SEOULPrivateSN2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SEOULVPC
+      AvailabilityZone: !Select [ 2, !GetAZs '' ]
+      CidrBlock: 10.1.4.0/24
+      Tags:
+        - Key: Name
+          Value: SEOUL-Private-SN2
+
+  SEOULTGWSN1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SEOULVPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.1.5.0/24
+      Tags: 
+        - Key: Name
+          Value: SEOUL-TGW-SN1
+
+  SEOULTGWSN2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SEOULVPC
+      AvailabilityZone: !Select [2, !GetAZs '']
+      CidrBlock: 10.1.6.0/24
+      Tags: 
+        - Key: Name
+          Value: SEOUL-TGW-SN2
+
+  # RT - SN
+  SEOULPublicSNRTAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref SEOULPublicRT
+      SubnetId: !Ref SEOULPublicSN1
+  
+  SEOULPublicSNRTAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref SEOULPublicRT
+      SubnetId: !Ref SEOULPublicSN2
+
+  SEOULPrivateSNRTAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref SEOULPrivateRT1
+      SubnetId: !Ref SEOULPrivateSN1
+
+  SEOULPrivateSNRTAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref SEOULPrivateRT2
+      SubnetId: !Ref SEOULPrivateSN2
+
+  SEOULTGWSNRTAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref SEOULTGWRT
+      SubnetId: !Ref SEOULTGWSN1
+
+  SEOULTGWSNRTAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref SEOULTGWRT
+      SubnetId: !Ref SEOULTGWSN2
+
+  # SG 
+  SEOULSG1:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref SEOULVPC
+      GroupDescription: SEOULVPC-NAT-ALB-WEBSRV-SG
+      Tags:
+      - Key : Name
+        Value : SEOULVPC-NAT-ALB-WEBSRV-SG
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: icmp
+        FromPort: -1
+        ToPort: -1
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 3306
+        ToPort: 3306
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 53
+        ToPort: 53
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: udp
+        FromPort: 53
+        ToPort: 53
+        CidrIp: 0.0.0.0/0
+
+  SEOULSG2:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref SEOULVPC
+      GroupDescription: SEOULVPC-Route53-Resolver-SG
+      Tags:
+      - Key : Name
+        Value : SEOULVPC-Route53-Resolver-SG
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 53
+        ToPort: 53
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: udp
+        FromPort: 53
+        ToPort: 53
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: icmp
+        FromPort: -1
+        ToPort: -1
+        CidrIp: 0.0.0.0/0
+
+  ### NAT ###
+
+  # ENI
+  # Private <-> Public 
+  # EC2 인스턴스가 VPC 내에서 다른 리소스와 연결되는 방법을 정의
+  # NAT 인스턴스가 VPC 내에서 통신하기 위한 네트워크 인터페이스
+  # ENI를 통해 서브넷에 연결됨
+  # NAT 인스턴스의 네트워크 구성을 따로 만든 것
+  SEOULNATENI1:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref SEOULPublicSN1
+      Description: Instance1 eth0
+      GroupSet:
+      - !Ref SEOULSG1
+     # 고정 사설 IP
+      PrivateIpAddress: 10.1.1.100
+      # NAT 만들 때 반드시 들어가야함
+      # 중계 역할이므로 false로
+      SourceDestCheck: false
+      Tags:
+        - Key: Name
+          Value: SEOUL-NAT-Instance1 eth0
+
+  SEOULNATENI2:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref SEOULPublicSN2
+      Description: Instance2 eth0
+      GroupSet:
+      - !Ref SEOULSG1
+     # 고정 사설 IP
+      PrivateIpAddress: 10.1.2.100
+      SourceDestCheck: false
+      Tags:
+        - Key: Name
+          Value: SEOUL-NAT-Instance2 eth0
+  
+  # EIP
+  # NAT 인스턴스가 인터넷 통신 위해 고정된 퍼블릭 IP 주소 받음
+  # EIP는 VPC에 받는 것이므로
+  SEOULEIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+    # Elastic IP가 VPC 내에서 사용될 것임을 지정
+      Domain: vpc
+
+  SEOULEIP2:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  # EIP - ENI
+  # EIP와 ENI를 연결 
+  # 특정 VPC에 넣기 위해 
+  SEOULENIAssociateEIP1:
+    Type: AWS::EC2::EIPAssociation
+    DependsOn: SEOULNATInstance1
+    Properties:
+      # EIP를 참조
+      # AllocationId는 Elastic IP의 고유 식별자
+      # 생성한 EIP를 참조하여 해당 EIP의 고유 식별자를 가져옴
+      AllocationId: !GetAtt SEOULEIP1.AllocationId
+      # ENI를 참조
+      # 특정 네트워크 인터페이스(ENI)의 고유 식별자
+      # 구성된 네트워크 인터페이스(ENI)를 참조하여 어떤 ENI에 EIP를 연결할지를 지정
+      NetworkInterfaceId: !Ref SEOULNATENI1
+
+  SEOULENIAssociateEIP2:
+    Type: AWS::EC2::EIPAssociation
+    DependsOn: SEOULNATInstance2
+    Properties:
+      # 속성 참조 - 할당 ID
+      AllocationId: !GetAtt SEOULEIP2.AllocationId
+      # 네트워크 인터페이스 ID를 리턴함
+      NetworkInterfaceId: !Ref SEOULNATENI2
+
+  # NAT Instance
+  SEOULNATInstance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-01ad0c7a4930f0e43 
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      Tags:
+        - Key: Name
+          Value: SEOUL-NAT-Instance1
+      NetworkInterfaces:
+      # ENI에 구성 정보 이미 작성
+        - DeviceIndex: 0
+          NetworkInterfaceId: !Ref SEOULNATENI1
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+            hostname SEOUL-NAT-Instance1
+            yum -y install tcpdump iptraf
+
+  SEOULNATInstance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-01ad0c7a4930f0e43 
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      Tags:
+        - Key: Name
+          Value: SEOUL-NAT-Instance2
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          NetworkInterfaceId: !Ref SEOULNATENI2
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+            hostname SEOUL-NAT-Instance2
+            yum -y install tcpdump iptraf
+
+  # EC2
+  SEOULWEBSRV1:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      Tags:
+        - Key: Name
+          Value: SEOUL-WEBSRV-1
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref SEOULPrivateSN1
+          GroupSet:
+          - !Ref SEOULSG1
+          PrivateIpAddress: 10.1.3.100
+      # 설치 확인하려면 bastion host ec2로 들어가서 keys 저장하고 -> chmod -> ssh -i
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          (
+          echo "CHANGE_ME_PASSWORD"
+          echo "CHANGE_ME_PASSWORD"
+          ) | passwd --stdin root
+          sed -i "s/^PasswordAuthentication no/PasswordAuthentication yes/g" /etc/ssh/sshd_config
+          sed -i "s/^#PermitRootLogin yes/PermitRootLogin yes/g" /etc/ssh/sshd_config
+          sudo service sshd restart
+
+          hostnamectl --static set-hostname Seoul-WEBSRV1
+          amazon-linux-extras install epel -y 
+          sudo yum install -y httpd php php-mysql tcpdump         
+          sudo systemctl enable --now httpd 
+          sudo sed -i 's/;date.timezone =/date.timezone = Asia\/Seoul/' /etc/php.ini
+          sudo sed -i 's/display_errors = Off/display_errors = On' /etc/php.ini
+          sudo systemctl restart httpd
+
+          cat << EOF > /var/www/html/index.html
+          <HTML>
+          <HEAD>
+          <META http-equiv="content-type" content="text/html; charset=utf8mb4">
+          </HEAD>
+          <BODY>
+          <h1> 회원 관리 시스템1 </h1>
+          <a href='select.php'> (1) 회원 조회 (조회 후 수정/삭제 가능) </a> <br><br>
+          <a href='insert.php'> (2) 신규 회원 등록 </a> <br><br>
+          <FORM METHOD="get"  ACTION="update.php">
+              (3) 회원 수정 - 회원 아이디 : <INPUT TYPE ="text" NAME="userID"> 
+              <INPUT TYPE="submit"  VALUE="수정">
+          </FORM>
+          <FORM METHOD="get"  ACTION="delete.php">
+              (4) 회원 삭제 - 회원 아이디 : <INPUT TYPE ="text" NAME="userID"> 
+              <INPUT TYPE="submit"  VALUE="삭제">
+          </FORM>
+          </BODY>
+          </HTML>
+          EOF
+
+          echo "<?php          
+          \$con=mysqli_connect(\"10.2.1.100\", \"user1\", \"CHANGE_ME_PASSWORD\", \"sqlDB\") or die(\"MySQL 접속 실패 !!\");
+          mysqli_query(\$con, \"set session character_set_connection=utf8mb4;\");
+          mysqli_query(\$con, \"set session character_set_results=utf8mb4;\");
+          mysqli_query(\$con, \"set session character_set_client=utf8mb4;\");
+          \$sql =\"SELECT * FROM userTBL\";
+ 
+          \$ret = mysqli_query(\$con, \$sql);   
+          if(\$ret) {
+              \$count = mysqli_num_rows(\$ret);
+          }
+          else {
+              echo \"userTBL 데이터 조회 실패!!!\".\"<br>\";
+              echo \"실패 원인 :\".mysqli_error(\$con);
+              exit();
+          } 
+   
+          echo \"<h1> 회원 조회 결과1 </h1>\";
+          echo \"<TABLE border=1>\";
+          echo \"<TR>\";
+          echo \"<TH>아이디</TH><TH>이름</TH><TH>출생년도</TH><TH>지역</TH><TH>극번</TH>\";
+          echo \"<TH>전화번호</TH><TH>키</TH><TH>가입일</TH><TH>수정</TH><TH>삭제</TH>\";
+          echo \"</TR>\";
+   
+          while(\$row = mysqli_fetch_array(\$ret)) {
+             echo \"<TR>\";
+             echo \"<TD>\", \$row['userID'], \"</TD>\";
+             echo \"<TD>\", \$row['name'], \"</TD>\";
+             echo \"<TD>\", \$row['birthYear'], \"</TD>\";
+             echo \"<TD>\", \$row['addr'], \"</TD>\";
+             echo \"<TD>\", \$row['mobile1'], \"</TD>\";
+             echo \"<TD>\", \$row['mobile2'], \"</TD>\";
+             echo \"<TD>\", \$row['height'], \"</TD>\";
+             echo \"<TD>\", \$row['mDATE'], \"</TD>\";
+             echo \"<TD>\", \"<a href='update.php?userID=\", \$row['userID'], \"'>수정</a>\", \"</TD>\";
+             echo \"<TD>\", \"<a href='delete.php?userID=\", \$row['userID'], \"'>삭제</a>\", \"</TD>\";
+             echo \"</TR>\";
+          }   
+          mysqli_close(\$con);
+          echo \"</TABLE>\";
+          echo \"<br> <a href='main.html'> <--초기 화면</a> \";
+                 ?>" > /var/www/html/select.php
+
+          cat > /var/www/html/insert.php <<EOF
+          <HTML>
+          <HEAD>
+          <META http-equiv="content-type" content="text/html; charset=utf-8">
+          </HEAD>
+          <BODY>
+          <h1> 신규 회원 입력1 </h1>
+          <FORM METHOD="post" ACTION="insert_result.php"> 
+              아이디 :<INPUT TYPE="text" NAME="userID"> <br>
+              이름 :<INPUT TYPE="text" NAME="name"> <br>
+              출생년도 :<INPUT TYPE="text" NAME="birthYear"> <br>
+              지역 :<INPUT TYPE="text" NAME="addr"> <br>
+              휴대폰 국번 :<INPUT TYPE="text" NAME="mobile1"> <br>
+              휴대폰 전화번호 :<INPUT TYPE="text" NAME="mobile2"> <br>
+              신장 :<INPUT TYPE="text" NAME="height"><br>
+              <BR><BR>
+              <INPUT TYPE="submit" VALUE="회원 입력">
+          </FORM>
+          </BODY>
+          </HTML>
+          EOF
+
+          cat > /var/www/html/insert_result.php <<EOF
+          <?php
+          $con = mysqli_connect("10.2.1.100", "user1", "CHANGE_ME_PASSWORD", "sqlDB") or die("MySQL 접속 실패 !!");
+          mysqli_query($con, "set session character_set_connection=utf8mb4;");
+          mysqli_query($con, "set session character_set_results=utf8mb4;");
+          mysqli_query($con, "set session character_set_client=utf8mb4;");
+
+          \$userID = \$_POST["userID"];
+          \$name = \$_POST["name"];
+          \$birthYear = \$_POST["birthYear"];
+          \$addr = \$_POST["addr"];
+          \$mobile1 = \$_POST["mobile1"];
+          \$mobile2 = \$_POST["mobile2"];
+          \$height = \$_POST["height"];
+          \$mDate = date("Y-m-j");
+
+          \$sql = "INSERT INTO userTBL VALUES('\$userID', '\$name', \$birthYear, '\$addr', '\$mobile1', '\$mobile2', \$height, '\$mDate')";
+
+          \$ret = mysqli_query(\$con, \$sql);
+
+          echo "<h1> 신규 회원 입력 결과1 </h1>";
+          if(\$ret) {
+              echo "데이터가 성공적으로 입력됨.";} else {
+              echo "데이터 입력 실패!!!<br>";
+              echo "실패 원인 :" . mysqli_error(\$con);}
+          mysqli_close(\$con);
+
+          echo "<br> <a href='main.html'> <--초기 화면</a> ";?>
+          EOF  
+
+          curl -o /opt/pingcheck.sh https://cloudneta-book.s3.ap-northeast-2.amazonaws.com/chapter8/pingchecker.sh
+          chmod +x /opt/pingcheck.sh
+          cat <<EOT>> /etc/crontab
+          */3 * * * * root /opt/pingcheck.sh
+          EOT
+
+
+  SEOULWEBSRV2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      Tags:
+        - Key: Name
+          Value: SEOUL-WEBSRV-2
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref SEOULPrivateSN2
+          GroupSet:
+          - !Ref SEOULSG1
+          PrivateIpAddress: 10.1.4.100
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          (
+          echo "CHANGE_ME_PASSWORD"
+          echo "CHANGE_ME_PASSWORD"
+          ) | passwd --stdin root
+          sed -i "s/^PasswordAuthentication no/PasswordAuthentication yes/g" /etc/ssh/sshd_config
+          sed -i "s/^#PermitRootLogin yes/PermitRootLogin yes/g" /etc/ssh/sshd_config
+          sudo service sshd restart
+
+          hostnamectl --static set-hostname Seoul-WEBSRV2
+          amazon-linux-extras install epel -y 
+          sudo yum install -y httpd php php-mysql tcpdump         
+          sudo systemctl enable --now httpd 
+          sudo sed -i 's/;date.timezone =/date.timezone = Asia\/Seoul/' /etc/php.ini
+          sudo sed -i 's/display_errors = Off/display_errors = On' /etc/php.ini
+          sudo systemctl restart httpd
+          cat << EOF > /var/www/html/index.html
+          <HTML>
+          <HEAD>
+          <META http-equiv="content-type" content="text/html; charset=utf8mb4">
+          </HEAD>
+          <BODY>
+          <h1> 회원 관리 시스템2 </h1>
+          <a href='select.php'> (1) 회원 조회 (조회 후 수정/삭제 가능) </a> <br><br>
+          <a href='insert.php'> (2) 신규 회원 등록 </a> <br><br>
+          <FORM METHOD="get"  ACTION="update.php">
+              (3) 회원 수정 - 회원 아이디 : <INPUT TYPE ="text" NAME="userID"> 
+              <INPUT TYPE="submit"  VALUE="수정">
+          </FORM>
+          <FORM METHOD="get"  ACTION="delete.php">
+              (4) 회원 삭제 - 회원 아이디 : <INPUT TYPE ="text" NAME="userID"> 
+              <INPUT TYPE="submit"  VALUE="삭제">
+          </FORM>
+          </BODY>
+          </HTML>
+          EOF
+
+          echo "<?php          
+          \$con=mysqli_connect(\"10.2.1.100\", \"user1\", \"CHANGE_ME_PASSWORD\", \"sqlDB\") or die(\"MySQL 접속 실패 !!\");
+          mysqli_query(\$con, \"set session character_set_connection=utf8mb4;\");
+          mysqli_query(\$con, \"set session character_set_results=utf8mb4;\");
+          mysqli_query(\$con, \"set session character_set_client=utf8mb4;\");
+          \$sql =\"SELECT * FROM userTBL\";
+ 
+          \$ret = mysqli_query(\$con, \$sql);   
+          if(\$ret) {
+              \$count = mysqli_num_rows(\$ret);
+          }
+          else {
+              echo \"userTBL 데이터 조회 실패!!!\".\"<br>\";
+              echo \"실패 원인 :\".mysqli_error(\$con);
+              exit();
+          } 
+   
+          echo \"<h1> 회원 조회 결과2 </h1>\";
+          echo \"<TABLE border=1>\";
+          echo \"<TR>\";
+          echo \"<TH>아이디</TH><TH>이름</TH><TH>출생년도</TH><TH>지역</TH><TH>극번</TH>\";
+          echo \"<TH>전화번호</TH><TH>키</TH><TH>가입일</TH><TH>수정</TH><TH>삭제</TH>\";
+          echo \"</TR>\";
+   
+          while(\$row = mysqli_fetch_array(\$ret)) {
+             echo \"<TR>\";
+             echo \"<TD>\", \$row['userID'], \"</TD>\";
+             echo \"<TD>\", \$row['name'], \"</TD>\";
+             echo \"<TD>\", \$row['birthYear'], \"</TD>\";
+             echo \"<TD>\", \$row['addr'], \"</TD>\";
+             echo \"<TD>\", \$row['mobile1'], \"</TD>\";
+             echo \"<TD>\", \$row['mobile2'], \"</TD>\";
+             echo \"<TD>\", \$row['height'], \"</TD>\";
+             echo \"<TD>\", \$row['mDATE'], \"</TD>\";
+             echo \"<TD>\", \"<a href='update.php?userID=\", \$row['userID'], \"'>수정</a>\", \"</TD>\";
+             echo \"<TD>\", \"<a href='delete.php?userID=\", \$row['userID'], \"'>삭제</a>\", \"</TD>\";
+             echo \"</TR>\";
+          }   
+          mysqli_close(\$con);
+          echo \"</TABLE>\";
+          echo \"<br> <a href='main.html'> <--초기 화면</a> \";
+                 ?>" > /var/www/html/select.php
+
+
+          cat > /var/www/html/insert.php <<EOF
+          <HTML>
+          <HEAD>
+          <META http-equiv="content-type" content="text/html; charset=utf-8">
+          </HEAD>
+          <BODY>
+          <h1> 신규 회원 입력2 </h1>
+          <FORM METHOD="post" ACTION="insert_result.php"> 
+              아이디 :<INPUT TYPE="text" NAME="userID"> <br>
+              이름 :<INPUT TYPE="text" NAME="name"> <br>
+              출생년도 :<INPUT TYPE="text" NAME="birthYear"> <br>
+              지역 :<INPUT TYPE="text" NAME="addr"> <br>
+              휴대폰 국번 :<INPUT TYPE="text" NAME="mobile1"> <br>
+              휴대폰 전화번호 :<INPUT TYPE="text" NAME="mobile2"> <br>
+              신장 :<INPUT TYPE="text" NAME="height"><br>
+              <BR><BR>
+              <INPUT TYPE="submit" VALUE="회원 입력">
+          </FORM>
+          </BODY>
+          </HTML>
+          EOF
+
+          cat > /var/www/html/insert_result.php <<EOF
+          <?php
+          $con = mysqli_connect("10.2.1.100", "user1", "CHANGE_ME_PASSWORD", "sqlDB") or die("MySQL 접속 실패 !!");
+          mysqli_query($con, "set session character_set_connection=utf8mb4;");
+          mysqli_query($con, "set session character_set_results=utf8mb4;");
+          mysqli_query($con, "set session character_set_client=utf8mb4;");
+
+          \$userID = \$_POST["userID"];
+          \$name = \$_POST["name"];
+          \$birthYear = \$_POST["birthYear"];
+          \$addr = \$_POST["addr"];
+          \$mobile1 = \$_POST["mobile1"];
+          \$mobile2 = \$_POST["mobile2"];
+          \$height = \$_POST["height"];
+          \$mDate = date("Y-m-j");
+
+          \$sql = "INSERT INTO userTBL VALUES('\$userID', '\$name', \$birthYear, '\$addr', '\$mobile1', '\$mobile2', \$height, '\$mDate')";
+
+          \$ret = mysqli_query(\$con, \$sql);
+
+          echo "<h1> 신규 회원 입력 결과2 </h1>";
+          if(\$ret) {
+              echo "데이터가 성공적으로 입력됨.";} else {
+              echo "데이터 입력 실패!!!<br>";
+              echo "실패 원인 :" . mysqli_error(\$con);}
+          mysqli_close(\$con);
+
+          echo "<br> <a href='main.html'> <--초기 화면</a> ";?>
+          EOF    
+
+          curl -o /opt/pingcheck.sh https://cloudneta-book.s3.ap-northeast-2.amazonaws.com/chapter8/pingchecker.sh
+          chmod +x /opt/pingcheck.sh
+          cat <<EOT>> /etc/crontab
+          */3 * * * * root /opt/pingcheck.sh
+          EOT
+          
+  
+  ## GA 환경을 위함 ##
+  ### ALB ###
+  # TG
+  SEOULALBTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: SEOULWEBSRV2    
+    Properties:
+      Name: SEOUL-ALB-TG
+      Port: 80
+      # TCP가 아니고 HTTP
+      Protocol: HTTP
+      VpcId: !Ref SEOULVPC
+      Targets:
+        - Id: !Ref SEOULWEBSRV1
+          Port: 80
+        - Id: !Ref SEOULWEBSRV2
+          Port: 80
+      Tags:
+      - Key : Name
+        Value : SEOUL-ALBTG
+
+  # ALB
+  SEOULALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+    # 기본값이 ALB라서 따로 타입 안써줘도됨
+      Name: SEOULALB
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref SEOULSG1
+      Subnets:
+        - !Ref SEOULPublicSN1
+        - !Ref SEOULPublicSN2
+
+  # 리스너
+  SEOULALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+      # 트래픽을 대상(Target Group)으로 전달한다는 의미
+        - Type: forward
+          TargetGroupArn: !Ref SEOULALBTG
+      LoadBalancerArn: !Ref SEOULALB
+      Port: 80
+      Protocol: HTTP
+
+  ############################## DNS 파트 #############################
+  
+  ### Route 53 ###
+  ### 프라이빗 호스팅 ###
+  # 호스팅 영역
+  SEOULPrivateHZ:
+    Type: AWS::Route53::HostedZone
+    # VPC 내에서만 DNS가 유효
+    # VPC가 존재하지 않으면 호스티드 존을 해당 VPC에 연결할 수 없기 때문
+    DependsOn: SEOULVPC
+    Properties:
+      HostedZoneConfig:
+        Comment: Private hosted zone for seoul.net
+      # 이 호스티드 존은 seoul.internal이라는 도메인 이름을 관리
+      Name: awsseoul.internal
+      # 프라이빗 호스팅 영역이기 때문에 VPC 설정 해줘야함
+      VPCs:
+      # 이 호스티드 존이 연결될 VPC
+        - VPCId: !Ref SEOULVPC
+      # 해당 VPC가 속한 AWS 리전
+          VPCRegion: ap-northeast-2
+      HostedZoneTags:
+        - Key: Name
+          Value: seouldomain
+
+  # seoul.internal 존에 만들 A 레코드
+  ARecordSEOULWEBSRV1:
+    Type: AWS::Route53::RecordSet
+    Properties:
+    # 이 호스트 영역(존)에 레코드 만들겠다.
+      HostedZoneId: !Ref SEOULPrivateHZ
+      Comment: DNS name for SEOUL-WEBSRV-1 instance.
+    # 도메인 이름
+      Name: websrv1.awsseoul.internal
+      Type: A
+      TTL: 60
+    # 위의 도메인의 IP
+      ResourceRecords:
+      - !GetAtt SEOULWEBSRV1.PrivateIp
+
+  ARecordSEOULWEBSRV2:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref SEOULPrivateHZ
+      Comment: DNS name for SEOUL-WEBSRV-2 instance.
+      Name: websrv2.awsseoul.internal
+      Type: A
+      TTL: 60
+      ResourceRecords:
+      - !GetAtt SEOULWEBSRV2.PrivateIp
+
+  ### DNS 쿼리 ###
+  # 인바운드 엔드 포인트
+  SEOULInboundEP:
+    Type: AWS::Route53Resolver::ResolverEndpoint
+    Properties:
+      Direction: INBOUND
+      IpAddresses:
+        - Ip: 10.1.3.250
+          SubnetId: !Ref SEOULPrivateSN1
+        - Ip: 10.1.4.250
+          SubnetId: !Ref SEOULPrivateSN2
+      SecurityGroupIds:
+        - !Ref SEOULSG2
+      Tags:
+        - Key: Name
+          Value: idc-to-seoul-inbound
+
+  # 아웃바운드 엔드포인트
+  SEOULOutboundEP:
+    Type: AWS::Route53Resolver::ResolverEndpoint
+    Properties:
+      Direction: OUTBOUND
+      IpAddresses:
+        - Ip: 10.1.3.251
+          SubnetId: !Ref SEOULPrivateSN1
+        - Ip: 10.1.4.251
+          SubnetId: !Ref SEOULPrivateSN2
+      SecurityGroupIds:
+        - !Ref SEOULSG2
+      Tags:
+        - Key: Name
+          Value: seoul-to-idc-outbound
+  
+  # 포워드 규칙
+  SEOULForwardRule1:
+    Type: AWS::Route53Resolver::ResolverRule
+    Properties:
+      DomainName: idcseoul.internal
+      Name: SEOUL-To-IDC-ForwardRule
+      ResolverEndpointId: !Ref SEOULOutboundEP
+      RuleType: FORWARD
+      Tags:
+        - Key: Name
+          Value: idc seoul rule
+      TargetIps:
+      # idcseoul.internal의 DNS 서버 주소
+        - Ip: 10.2.1.200
+          Port: 53
+  
+  # 포워드 규칙과 VPC 연결
+  # 아웃바운드 포워드 규칙을 넣을 VPC
+  SEOULResolverRuleAssociation1:
+    Type: AWS::Route53Resolver::ResolverRuleAssociation
+    Properties:
+      Name: SEOUL-Resolver-Rule-Association1
+      ResolverRuleId: !Ref SEOULForwardRule1
+      VPCId: !Ref SEOULVPC
+
+  SEOULForwardRule2:
+    Type: AWS::Route53Resolver::ResolverRule
+    Properties:
+      DomainName: awssingapore.internal
+      Name: aws singapore rule
+      ResolverEndpointId: !Ref SEOULOutboundEP
+      RuleType: FORWARD
+      Tags:
+        - Key: Name
+          Value: aws singapore rule
+      TargetIps:
+        - Ip : 10.3.3.250
+          Port : 53
+
+  SEOULResolverRuleAssociation2:
+    Type: AWS::Route53Resolver::ResolverRuleAssociation
+    Properties:
+      Name: SEOUL-Resolver-Rule-Association2
+      ResolverRuleId: !Ref SEOULForwardRule2
+      VPCId: !Ref SEOULVPC
+
+  SEOULForwardRule3:
+    Type: AWS::Route53Resolver::ResolverRule
+    Properties:
+      DomainName: idcsingapore.internal
+      Name: idc singapore rule
+      ResolverEndpointId: !Ref SEOULOutboundEP
+      RuleType: FORWARD
+      Tags:
+        - Key: Name
+          Value: idc singapore rule
+      TargetIps:
+        - Ip : 10.4.1.200
+          Port : 53
+
+  SEOULResolverRuleAssociation3:
+    Type: AWS::Route53Resolver::ResolverRuleAssociation
+    Properties:
+      Name: SEOUL-Resolver-Rule-Association3
+      ResolverRuleId: !Ref SEOULForwardRule3
+      VPCId: !Ref SEOULVPC
+
+
+  ############################## DNS 파트 #############################
+
+  # 서울 Transit Gateway
+  SEOULTGW:
+    Type: AWS::EC2::TransitGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: SEOULTGW
+
+  # SEOUL VPC와 TGW를 연결
+  # 콘솔에서 attachment 타입을 VPC로 한 것
+  SEOULVPCTGWAtt:
+    Type: AWS::EC2::TransitGatewayAttachment
+    DependsOn: SEOULVPC
+    Properties:
+      VpcId: !Ref SEOULVPC
+      # VPC 내부에서 Transit Gateway와 통신할 수 있는 서브넷의 ID 목록.
+      SubnetIds:
+        - !Ref SEOULTGWSN1
+        - !Ref SEOULTGWSN2
+      TransitGatewayId: !Ref SEOULTGW
+      Tags:
+        - Key: Name
+          Value: SEOUL-VPC-TGWAtt
+
+  # VPC -> TGW 가는 경로 추가
+  # VPC의 라우트 테이블에 Transit Gateway로의 라우팅 규칙을 추가
+  SEOULVPCTGWRoute1:
+    Type: AWS::EC2::Route
+    DependsOn: SEOULVPCTGWAtt
+    Properties:
+    # 이 경로가 추가될 라우트 테이블
+      RouteTableId: !Ref SEOULPrivateRT1
+      # 10.0.0.0/8 대역 트래픽이 Transit Gateway로 전송되도록 설정
+      DestinationCidrBlock: 10.0.0.0/8
+      # 트래픽을 전달할 TGW
+      TransitGatewayId: !Ref SEOULTGW
+
+  SEOULVPCTGWRoute2:
+    Type: AWS::EC2::Route
+    DependsOn: SEOULVPCTGWAtt
+    Properties:
+    # 이 경로가 추가될 라우트 테이블
+      RouteTableId: !Ref SEOULPrivateRT2
+      # 10.0.0.0/8 대역 트래픽이 Transit Gateway로 전송되도록 설정
+      DestinationCidrBlock: 10.0.0.0/8
+      # 트래픽을 전달할 TGW
+      TransitGatewayId: !Ref SEOULTGW
+
+
+  ### IDC-VPC ###
+  # VPC
+  IDCSEOULVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.2.0.0/16
+      # 둘다 true로 해주면 -> resolv.conf 파일 nameserver 10.2.1.200
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: IDC-SEOUL-VPC
+
+  # IGW
+  IDCSEOULIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: IDC-SEOUL-IGW
+  
+  # VPC-IGW 
+  IDCSEOULVPCIGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref IDCSEOULIGW
+      VpcId: !Ref IDCSEOULVPC
+
+  # RT
+  IDCSEOULDNSDBRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref IDCSEOULVPC
+      Tags:
+        - Key: Name
+          Value: IDCSEOUL-IGW-RT
+
+  IDCSEOULCGWRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref IDCSEOULVPC
+      Tags:
+        - Key: Name
+          Value: IDCSEOUL-CGW-RT
+
+  # IGW - RT
+  IDCSEOULDNSDBRoute1:
+    Type: AWS::EC2::Route
+    DependsOn: IDCSEOULVPCIGWAttachment
+    Properties:
+    # 라우트가 추가될 라우트 테이블
+      RouteTableId: !Ref IDCSEOULDNSDBRT
+    # 이 IP 주소를 대상으로 하는 경로를 정의
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IDCSEOULIGW
+      
+  # DNS와 MasterDB가 CGW를 통해 외부와 통신 위해
+  IDCSEOULDNSDBRoute2:
+    Type: AWS::EC2::Route
+    DependsOn: IDCSEOULCGWENI
+    Properties:
+    # 라우트가 추가될 라우트 테이블
+      RouteTableId: !Ref IDCSEOULDNSDBRT
+    # 이 IP 주소를 대상으로 하는 경로를 정의
+      DestinationCidrBlock: 10.0.0.0/8
+    # 위 경로의 트래픽이 전달될 대상 네트워크 인터페이스(ENI)
+      NetworkInterfaceId: !Ref IDCSEOULCGWENI
+
+  IDCSEOULCGWRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IDCSEOULVPCIGWAttachment
+    Properties:
+    # 라우트가 추가될 라우트 테이블
+      RouteTableId: !Ref IDCSEOULCGWRT
+    # 이 IP 주소를 대상으로 하는 경로를 정의
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IDCSEOULIGW
+
+  # SN
+  IDCSEOULPublicSN:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref IDCSEOULVPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.2.1.0/24
+      Tags: 
+        - Key: Name
+          Value: IDCSEOUL-Public-SN
+
+  IDCSEOULTGWSN:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref IDCSEOULVPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.2.2.0/24
+      Tags: 
+        - Key: Name
+          Value: IDCSEOUL-TGW-SN
+
+  # RT - SN
+  IDCSEOULDNSDBSNRTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref IDCSEOULDNSDBRT
+      SubnetId: !Ref IDCSEOULPublicSN
+
+  IDCSEOULTGWSNRTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref IDCSEOULCGWRT
+      SubnetId: !Ref IDCSEOULTGWSN
+
+  # SG
+  IDCSEOULCGWDBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref IDCSEOULVPC
+      GroupDescription: IDCSEOUL-CGWDB-SG
+      Tags:
+      - Key : Name
+        Value : IDCSEOUL-CGWDB-SG
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: icmp
+        FromPort: -1
+        ToPort: -1
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 3306
+        ToPort: 3306
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: udp
+        FromPort: 4500
+        ToPort: 4500
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: udp
+        FromPort: 53
+        ToPort: 53
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 53
+        ToPort: 53
+        CidrIp: 0.0.0.0/0
+
+  IDCSEOULDNSSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref IDCSEOULVPC
+      GroupDescription: IDCSEOUL-DNS-SG
+      Tags:
+      - Key : Name
+        Value : IDCSEOUL-DNS-SG
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: udp
+        FromPort: 53
+        ToPort: 53
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 53
+        ToPort: 53
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: icmp
+        FromPort: -1
+        ToPort: -1
+        CidrIp: 0.0.0.0/0
+
+  # ENI
+  IDCSEOULCGWENI:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref IDCSEOULTGWSN
+      Description: CGWInstance eth0
+      GroupSet:
+      - !Ref IDCSEOULCGWDBSG
+     # 고정 사설 IP
+      PrivateIpAddress: 10.2.2.100
+      Tags:
+        - Key: Name
+          Value: IDCSEOUL-CGWENI 
+  
+  # EIP
+  IDCSEOULCGWEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  # EIP - ENI
+  IDCSEOULCGWENIAssociateEIP:
+    Type: AWS::EC2::EIPAssociation
+    DependsOn: IDCSEOULCGW
+    Properties:
+      AllocationId: !GetAtt IDCSEOULCGWEIP.AllocationId
+      NetworkInterfaceId: !Ref IDCSEOULCGWENI
+
+  # NAT Instance
+  IDCSEOULCGW:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      Tags:
+        - Key: Name
+          Value: IDCSEOUL-CGW
+      # 중계 역할
+      SourceDestCheck: false
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          NetworkInterfaceId: !Ref IDCSEOULCGWENI
+      UserData:
+      # 리눅스용 VPN 패키지
+      # 커널 수준에서 설정 변경 /etc/sysctl.conf
+      # net.ipv4.ip_forward=1 디폴트 값은 0 -> 1로 되어있어야 리눅스에서 전송가능
+      # ipsec 데몬
+        Fn::Base64: |
+          #!/bin/bash
+          hostnamectl --static set-hostname IDCSEOUL-CGW
+          yum -y install tcpdump openswan
+          cat <<EOF>> /etc/sysctl.conf
+          net.ipv4.ip_forward=1
+          net.ipv4.conf.all.accept_redirects = 0
+          net.ipv4.conf.all.send_redirects = 0
+          net.ipv4.conf.default.send_redirects = 0
+          net.ipv4.conf.eth0.send_redirects = 0
+          net.ipv4.conf.default.accept_redirects = 0
+          net.ipv4.conf.eth0.accept_redirects = 0
+          net.ipv4.conf.ip_vti0.rp_filter = 0
+          net.ipv4.conf.eth0.rp_filter = 0
+          net.ipv4.conf.default.rp_filter = 0
+          net.ipv4.conf.all.rp_filter = 0
+          EOF
+          sysctl -p /etc/sysctl.conf
+          curl -o /etc/ipsec.d/vpnconfig.sh https://cloudneta-book.s3.ap-northeast-2.amazonaws.com/chapter6/6_lab_s2s-vpnconfig.sh
+          chmod +x /etc/ipsec.d/vpnconfig.sh
+
+          sed -i 's/leftsubnet=10\.60\.0\.0\/16/leftsubnet=10.2.0.0\/16/' /etc/ipsec.d/vpnconfig.sh
+          sed -i 's/rightsubnet=10\.50\.0\.0\/16/rightsubnet=10.0.0.0\/8/' /etc/ipsec.d/vpnconfig.sh
+          systemctl restart ipsec
+          
+
+  ## DNSSRV ##
+  # ENI
+  # EC2 인스턴스가 VPC 내에서 다른 리소스와 연결되는 방법을 정의
+  IDCSEOULDNSENI:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+    # 인터페이스 내부 속성들 미리 정의
+      SubnetId: !Ref IDCSEOULPublicSN
+      Description: IIDCSEOULPublicSN eth0
+      GroupSet:
+      - !Ref IDCSEOULDNSSG
+    # 고정 사설 IP
+      PrivateIpAddress: 10.2.1.200
+    # 기본값 true, 그러나 false도 포워딩 역할 아니므로 필요없음
+      Tags:
+        - Key: Name
+          Value: IDCSEOUL-DNS-ENI
+
+  # DNSSRV에 공인 IP 할당
+  IDCSEOULDNSEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  # ENI - EIP        
+  IDCSEOULDNSENIAssociateEIP:
+    Type: AWS::EC2::EIPAssociation
+  # EIP와 ENI가 생성되고 연결되기 전에 IDCSEOULDNSSRV 인스턴스가 생성되면 안 되므로
+    DependsOn: IDCSEOULDNSSRV
+    Properties:
+      # AllocationId는 Elastic IP의 고유 식별자
+      AllocationId: !GetAtt IDCSEOULDNSEIP.AllocationId
+      # 구성된 네트워크 인터페이스(ENI)를 참조하여 어떤 ENI에 EIP를 연결할지를 지정
+      NetworkInterfaceId: !Ref IDCSEOULDNSENI
+
+  IDCSEOULDNSSRV:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      Tags:
+        - Key: Name
+          Value: IDCSEOUL-DNSSRV
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          # 서브넷 없는 이유 ENI에 들어가 있기 때문
+          NetworkInterfaceId: !Ref IDCSEOULDNSENI
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          hostnamectl --static set-hostname IDCSEOUL-DNSSRV
+          amazon-linux-extras install epel -y
+          yum -y install bind bind-utils bind-libs
+          sed -i "s/listen-on port 53 { 127.0.0.1; }/listen-on port 53 { any; }/g" /etc/named.conf
+          sed -i "s/allow-query     { localhost; }/allow-query     { any; }/g" /etc/named.conf
+          sed -i "s/dnssec-enable yes/dnssec-enable no/g" /etc/named.conf		  
+          sed -i "s/dnssec-validation yes/dnssec-validation no/g" /etc/named.conf
+          
+          cat <<EOF>> /etc/named.rfc1912.zones	
+          zone "idcseoul.internal" {
+              type master;
+              file "/var/named/idcseoul.internal";
+              allow-update { none; };
+          };		  
+          zone "awsseoul.internal" {
+              type forward;
+              forward only;
+              forwarders { 10.1.3.250; 10.1.4.250; };
+          };
+          zone "awssingapore.internal" {
+              type forward;
+              forward only;
+              forwarders { 10.3.3.250; };
+          }; 
+          zone "idcsingapore.internal" {
+              type forward;
+              forward only;
+              forwarders { 10.4.1.200; };
+          };            
+          EOF
+          
+          cat <<EOF> /var/named/idcseoul.internal
+          \$TTL 300
+          @ IN SOA idcseoul.internal. root.idcseoul.internal. (
+            2019122114 ; serial
+            3600       ; refresh
+            900        ; retry
+            604800     ; expire
+            86400      ; minimum
+          )
+
+          @           IN NS ns1.idcseoul.internal.
+          ns1         IN A  10.2.1.200
+          dbsrv       IN A  10.2.1.100
+          dnssrv      IN A  10.2.1.200
+          
+          EOF
+
+          cat <<EOF> /var/named/idcsingapore.internal
+          \$TTL 300
+          @ IN SOA idcsingapore.internal. root.idcsingapore.internal. (
+            2019122114 ; serial
+            3600       ; refresh
+            900        ; retry
+            604800     ; expire
+            86400      ; minimum
+          )
+
+          @           IN NS ns1.idcsingapore.internal.
+          ns1         IN A  10.4.1.200
+          dbsrv       IN A  10.4.1.100
+          dnssrv      IN A  10.4.1.200
+          
+          EOF
+
+          systemctl enable --now named
+
+  # EC2
+  ## Master DB ##
+  IDCSEOULMasterDB:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName
+      Tags:
+        - Key: Name
+          Value: IDCSEOUL-MasterDB
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref IDCSEOULPublicSN
+          GroupSet:
+          - !Ref IDCSEOULCGWDBSG
+          AssociatePublicIpAddress: true
+          PrivateIpAddress: 10.2.1.100
+      UserData:
+      # /etc/resolv.conf 파일이 네임서버가 DNSSRV 설정이 되어 있어야함
+        Fn::Base64: |
+          #!/bin/bash
+          (
+          echo "CHANGE_ME_PASSWORD"
+          echo "CHANGE_ME_PASSWORD"
+          ) | passwd --stdin root
+          sed -i "s/^PasswordAuthentication no/PasswordAuthentication yes/g" /etc/ssh/sshd_config
+          sed -i "s/^#PermitRootLogin yes/PermitRootLogin yes/g" /etc/ssh/sshd_config
+          sudo service sshd restart
+          sudo sed -i 's/^nameserver 10\.2\.0\.2$/nameserver 10.2.1.200/' /etc/resolv.conf
+
+          cat <<EOT> /home/ec2-user/list.txt
+          10.1.3.100
+          websrv1.awsseoul.internal
+          10.1.4.100
+          websrv2.awsseoul.internal
+          10.2.1.100
+          dbsrv.idcseoul.internal
+          10.2.1.200
+          dnssrv.idcseoul.internal
+          10.3.3.100
+          websrv1.awssingapore.internal
+          10.4.1.100
+          dbsrv.idcsingapore.internal
+          10.4.1.200
+          dnssrv.idcsingapore.internal
+          EOT
+          curl -o /home/ec2-user/pingall.sh https://cloudneta-book.s3.ap-northeast-2.amazonaws.com/chapter6/pingall.sh --silent
+          chmod +x /home/ec2-user/pingall.sh
+
+          hostnamectl --static set-hostname IDCSEOUL-MasterDB
+
+          amazon-linux-extras install epel -y   
+          sudo yum install -y https://dev.mysql.com/get/mysql80-community-release-el7-6.noarch.rpm
+          sudo rpm --import https://repo.mysql.com/RPM-GPG-KEY-mysql-2022
+          sudo sed -i '/^\[mysql80-community\]/,/^$/s/^gpgcheck=1/gpgcheck=0/' /etc/yum.repos.d/mysql-community.repo
+          sudo yum update -y
+          sudo yum install -y mysql-server
+          sudo systemctl start mysqld
+          sudo systemctl enable mysqld
+          sudo yum install -y sshpass
+
+          sudo echo -e "\ncollation-server = utf8mb4_unicode_ci\ninit-connect='SET NAMES utf8mb4'\ncharacter-set-server = utf8mb4\nvalidate_password.policy = LOW\ndefault_authentication_plugin = mysql_native_password\n\n[client]\ndefault-character-set = utf8mb4\n\n[mysql]\ndefault-character-set = utf8mb4" | sudo tee -a /etc/my.cnf
+          sudo systemctl restart mysqld
+
+          TEMP_PASS=$(grep 'temporary password' /var/log/mysqld.log | awk '{print $NF}')
+          mysql -uroot -p"$TEMP_PASS" --connect-expired-password -e " ALTER USER 'root'@'localhost' IDENTIFIED BY 'CHANGE_ME_PASSWORD';"
+          
+          while ! mysqladmin ping --silent; do
+              echo "Waiting for MySQL to be ready..."
+              sleep 5
+          done
+
+          mysql -uroot -pCHANGE_ME_PASSWORD <<EOF
+          CREATE DATABASE sqlDB;
+          CREATE USER 'user1'@'%' IDENTIFIED BY 'CHANGE_ME_PASSWORD';
+
+          GRANT ALL PRIVILEGES ON sqlDB.* TO 'user1'@'%';
+          GRANT REPLICATION SLAVE ON *.* TO 'user1'@'%';
+          FLUSH PRIVILEGES;
+
+          USE sqlDB;
+          CREATE TABLE userTBL (
+              userID CHAR(8) NOT NULL PRIMARY KEY,
+              name NVARCHAR(10) NOT NULL,
+              birthYear INT NOT NULL,
+              addr NCHAR(2) NOT NULL,
+              mobile1 CHAR(3),
+              mobile2 CHAR(8),
+              height SMALLINT,
+              mDATE DATE
+          ) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+
+          INSERT INTO userTBL (userID, name, birthYear, addr, mobile1, mobile2, height, mDATE) VALUES
+          ('HGD', '홍길동', 1990, '서울', '010', '12345678', 175, '2025-01-01'),
+          ('KCS', '김철수', 1985, '부산', '010', '87654321', 180, '2025-01-02'),
+          ('LYH', '이영희', 1992, '대구', '010', '11223344', 160, '2025-01-03');  
+          EOF
+
+
+
+  ### IDC -TGW ###
+  # IDC의 CGW 인식시키게 하기
+  IDCSEOULCGWPerceive:
+    Type: AWS::EC2::CustomerGateway
+    DependsOn: IDCSEOULCGWEIP
+    Properties:
+      Type: ipsec.1
+      BgpAsn: 65000
+      # IDC의 CGW 공인IP
+      IpAddress: !Ref IDCSEOULCGWEIP
+      Tags:
+        - Key: Name
+          Value: IDCSEOUL-CGW-Perceive
+
+  # CGW - TGW 연결
+  SEOULVPCIDCVpnConnection:
+    Type: AWS::EC2::VPNConnection
+    Properties:
+      # VPN 연결의 유형을 지정
+      # IPsec 기반의 사이트-투-사이트 VPN을 설정
+      Type: ipsec.1
+      # 정적 경로
+      # TGW 라우팅 테이블로 자동으로 경로 안들어오기 때문에
+      StaticRoutesOnly: true
+      # 인식시킨 CGW
+      CustomerGatewayId: !Ref IDCSEOULCGWPerceive
+      # VPC가 아닌 VPN과 연결
+      TransitGatewayId: !Ref SEOULTGW
+      VpnTunnelOptionsSpecifications:
+      # PSK
+        - PreSharedKey: CHANGE_ME_PSK
+      Tags:
+        - Key: Name
+          Value: SEOULVPC-IDCVpn-Connection
+  
+  # 배포 후 VPN 연결로 생성된 값을 채워 주석을 해제합니다.
+  # (TGW 라우팅 테이블에는 VPN 경로가 자동으로 들어오지 않아 정적 경로를 추가)
+  # TGWStaticRoute:
+  #   Type: AWS::EC2::TransitGatewayRoute
+  #   Properties:
+  #     DestinationCidrBlock: 10.2.0.0/16
+  #     TransitGatewayRouteTableId: <TGW_ROUTE_TABLE_ID>
+  #     TransitGatewayAttachmentId: <VPN_TGW_ATTACHMENT_ID>
