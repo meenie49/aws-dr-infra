@@ -15,3 +15,46 @@
 
 ### 시나리오
 아시아 시장을 대상으로 하는 가상의 글로벌 패션·뷰티 이커머스 기업 "GlobalStyle"이 서울·싱가포르에 인프라를 구축하여, 한 리전에 장애가 나도 서비스가 중단되지 않도록 하는 상황을 가정했습니다.
+
+
+## 2. 사용 서비스
+
+| 서비스 | 용도 |
+|---|---|
+| VPC / EC2 | 리전별 네트워크, 웹 서버, NAT 인스턴스, DNS·DB·VPN 서버 |
+| Application Load Balancer | 서울 프라이빗 웹 서버 부하 분산 |
+| Transit Gateway (+ Peering) | VPC·VPN 연결, 리전 간 라우팅 |
+| Site-to-Site VPN | AWS ↔ IDC 암호화 통신 (Openswan CGW) |
+| Route 53 (Private Hosted Zone, Resolver) | 내부 도메인 해석, 리전 간 DNS 포워딩 |
+| Global Accelerator | 헬스체크 기반 자동 페일오버 |
+| CloudFormation | 리전별 인프라 코드화 |
+
+## 3. 네트워크 구성
+
+| 구분 | 대역 | 내부 도메인 | 주요 구성 |
+|---|---|---|---|
+| Seoul VPC | 10.1.0.0/16 | awsseoul.internal | Public 2 / Private 2, NAT 인스턴스 2, ALB, 웹 서버 2 |
+| IDC Seoul | 10.2.0.0/16 | idcseoul.internal | DNS 10.2.1.200, **Master DB 10.2.1.100**, CGW(VPN) |
+| Singapore VPC | 10.3.0.0/16 | awssingapore.internal | Public 1 / Private 2, NAT 인스턴스 1, 웹 서버 1 |
+| IDC Singapore | 10.4.0.0/16 | idcsingapore.internal | DNS 10.4.1.200, **Slave DB 10.4.1.100**, CGW(VPN) |
+
+- VPC ↔ TGW: VPC Attachment
+- TGW ↔ IDC: Site-to-Site VPN (정적 라우팅)
+- 서울 TGW ↔ 싱가포르 TGW: Peering Connection (정적 라우팅으로 10.1~10.4 대역 확보)
+
+## 4. 검증 결과
+
+| 항목 | 방법 | 결과 |
+|---|---|---|
+| 리전 간 통신 | 서울↔싱가포르 양방향 `pingall.sh` | 웹/DB/DNS 서버 IP·도메인 모두 up |
+| DNS 해석 | 양방향 `dig +short` | 4개 도메인의 서버 이름 정상 해석 |
+| DB 복제 | `SHOW SLAVE STATUS\G` | `Slave_IO_Running: Yes`, `Slave_SQL_Running: Yes`, `Last_Errno: 0` |
+| 평상시 | Global Accelerator 접속 | 서울 웹 서버(WEBSRV1/2)로 응답, 회원 등록·조회 정상 |
+| **장애 전환** | 서울 Master DB 중지 | 아래 참고 |
+
+### 장애 전환 시나리오
+1. 서울 IDC Master DB 인스턴스 중지
+2. 웹 서버가 DB에 연결하지 못해 ALB 타겟 그룹 EC2가 **Unhealthy**
+3. Global Accelerator가 서울 엔드포인트 이상을 감지
+4. 트래픽이 자동으로 **싱가포르 엔드포인트**로 전환되어 Singapore Admin Page 응답
+
