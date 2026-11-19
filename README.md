@@ -58,3 +58,38 @@
 3. Global Accelerator가 서울 엔드포인트 이상을 감지
 4. 트래픽이 자동으로 **싱가포르 엔드포인트**로 전환되어 Singapore Admin Page 응답
 
+## 5. 저장소 구성
+
+```
+aws-dr-infra/
+├── README.md
+├── docs/
+│   └── architecture.png
+└── cloudformation/
+    ├── seoul-region.yaml        # 서울 VPC, IDC, ALB, 웹, TGW, VPN, DNS (77 리소스)
+    └── singapore-region.yaml    # 싱가포르 VPC, IDC, 웹, TGW, VPN, DNS (63 리소스)
+```
+
+### 코드화 범위
+| 코드(CloudFormation)에 포함 | 콘솔/수동으로 구성 |
+|---|---|
+| VPC, 서브넷, NAT 인스턴스, ALB, 웹/DNS/DB/CGW 서버, TGW와 VPC Attachment, VPN, Route 53 | TGW 리전 간 Peering, TGW 정적 경로, MySQL Master–Slave 복제 설정, Global Accelerator |
+
+## 6. 배포 방법 (요약)
+1. 서울·싱가포르 스택을 각각 배포 (비밀번호·PSK는 `CHANGE_ME_*` 값을 본인 값으로 교체)
+2. 각 리전 VPN 연결 후 CGW(Openswan) 설정
+3. TGW Peering 생성 및 수락, 양쪽 TGW 라우팅 테이블에 정적 경로 추가
+4. DB Master/Slave 복제 설정
+5. Global Accelerator에 서울 ALB, 싱가포르 엔드포인트 등록
+
+## 7. 트러블슈팅
+| 문제 | 원인 / 해결 |
+|---|---|
+| 내부 도메인 해석 실패 | resolv.conf의 DNS 설정 확인 후 수정 |
+| VPN 터널 미연결 | VPN 서비스 재시작 |
+| 장애 전환 테스트에서 싱가포르 웹이 서울 DB(10.2.1.100)를 바라봄 | 싱가포르 웹 서버 설정을 10.4.1.100으로 수정 |
+| MySQL 사용자 생성·권한 오류 | 비밀번호 정책(validate_password), 임시 비밀번호, 권한 부여 순서 확인 |
+| 웹 서버 PHP-DB 연동 실패 | php-mysql 패키지 설치 |
+| AMI 문제로 약 2일 소요 | (원인/해결 내용을 직접 보완) |
+
+ㄴ
