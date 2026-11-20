@@ -3,7 +3,7 @@
 > **Multi-Region(서울·싱가포르)을 활용한 무중단 서비스 아키텍처**
 > 서울 리전 장애 시 Global Accelerator가 트래픽을 싱가포르 리전으로 자동 전환하는 AWS DR(재해복구) 구성 프로젝트입니다. (개인 프로젝트)
 
-![architecture](docs/DR_Infra_architecture.png)
+![architecture](docs/architecture.png)
 
 ## 1. 프로젝트 목적
 
